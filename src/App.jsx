@@ -1,6 +1,8 @@
 import logo from './logo.svg';
 import './App.css';
 
+import { HashRouter as Router, Routes, Route, Link } from 'react-router-dom';
+
 function App() {
   return (
     <div className="App">

@@ -1,0 +1,130 @@
+; src/index.js
+const { app, BrowserWindow, ipcMain } = require('electron');
+const Database = require('better-sqlite3');
+const path = require('path');
+
+// Initialize SQLite database stored safely in user data directory
+const dbPath = path.join(app.getPath('userData'), 'study_guide.db');
+const db = new Database(dbPath);
+
+// Create tables for your MVP Enabling Objectives (EOs)
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS objectives (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    answer TEXT
+  )
+`).run();
+
+function createWindow() {
+  const mainWindow = new BrowserWindow({
+    width: 1000,
+    height: 800,
+    webPreferences: {
+      preload: MAIN_WINDOW_WEBPACK_ENTRY_PRELOAD,
+    },
+  });
+
+  mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+}
+
+// --- IPC Handlers for Database Queries ---
+ipcMain.handle('get-objectives', () => {
+  try {
+    const stmt = db.prepare('SELECT * FROM objectives');
+    return { success: true, data: stmt.all() };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('add-objective', (event, { title, answer }) => {
+  try {
+    const stmt = db.prepare('INSERT INTO objectives (title, answer) VALUES (?, ?)');
+    const info = stmt.run(title, answer);
+    return { success: true, id: info.lastInsertRowid };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+app.whenReady().then(createWindow);
+
+
+; src/preload.js
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('dbAPI', {
+  getObjectives: () => ipcMain ? null : ipcRenderer.invoke('get-objectives'),
+  addObjective: (objective) => ipcRenderer.invoke('add-objective', objective),
+});
+
+
+
+; src/App.jsx
+import React, { useEffect, useState } from 'react';
+
+export default function App() {
+  const [objectives, setObjectives] = useState([]);
+  const [title, setTitle] = useState('');
+  const [answer, setAnswer] = useState('');
+
+  // Fetch data on component load
+  useEffect(() => {
+    loadObjectives();
+  }, []);
+
+  const loadObjectives = async () => {
+    const result = await window.dbAPI.getObjectives();
+    if (result.success) {
+      setObjectives(result.data);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+
+    const result = await window.dbAPI.addObjective({ title, answer });
+    if (result.success) {
+      setTitle('');
+      setAnswer('');
+      loadObjectives(); // Refresh list
+    }
+  };
+
+  return (
+    <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
+      <h1>Study Guide - Enabling Objectives</h1>
+
+      <form onSubmit={handleSubmit} style={{ marginBottom: '20px' }}>
+        <div>
+          <input
+            type="text"
+            placeholder="Enabling Objective..."
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            style={{ marginRight: '10px', padding: '5px' }}
+          />
+          <input
+            type="text"
+            placeholder="Answer / Flashcard Text..."
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            style={{ marginRight: '10px', padding: '5px' }}
+          />
+          <button type="submit" style={{ padding: '5px 10px' }}>Add EO</button>
+        </div>
+      </form>
+
+      <h2>Saved Objectives</h2>
+      <ul>
+        {objectives.map((eo) => (
+          <li key={eo.id} style={{ marginBottom: '10px' }}>
+            <strong>{eo.title}</strong>: {eo.answer || '(No answer provided)'}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

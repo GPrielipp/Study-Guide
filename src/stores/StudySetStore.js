@@ -26,7 +26,7 @@ import { produce } from 'immer';
  * }
  */
 
-export const useStudySetStore = create()( (set) => ({
+export const useStudySetStore = create( (set) => ({
     activeSet: null,
     studySets: [],
     addSet: (studySet) => set( () => ({studySets: [studySet, ...studySets]}) ),
